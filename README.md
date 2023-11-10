@@ -61,5 +61,5 @@
 
   2. 逻辑过期（搭配缓存预热）：给数据设置逻辑过期时间，但在redis保存的是永久的，当查到数据后(一定会查到)，判断是否过期如果过期则争抢锁。争抢到了则开启一个独立线程去构造数据，然后自己返回旧值；没争抢到直接返回旧值。
 
-  ![image-20231110112209272](https://raw.githubusercontent.com/ZenithWon/figure/master/image-20231110112209272.png)
+<img src="https://raw.githubusercontent.com/ZenithWon/figure/master/image-20231110112209272.png" alt="image-20231110112209272" style="zoom: 33%;" />
 
