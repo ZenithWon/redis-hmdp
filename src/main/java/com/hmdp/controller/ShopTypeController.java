@@ -25,7 +25,7 @@ public class ShopTypeController {
     @Resource
     private IShopTypeService shopTypeService;
 
-    @GetMapping("list")
+    @GetMapping("/list")
     public Result queryTypeList() {
 
         return shopTypeService.queryTypeList();

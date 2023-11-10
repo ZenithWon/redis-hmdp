@@ -39,6 +39,7 @@ public class ShopTypeServiceImpl extends ServiceImpl<ShopTypeMapper, ShopType> i
     @Override
     public Result queryTypeList() {
         String shopTypeJson = stringRedisTemplate.opsForValue().get(RedisConstants.CACHE_SHOP_TYPE_KEY);
+        log.debug(shopTypeJson);
         if(!StringUtils.isEmpty(shopTypeJson)){
             List<ShopType> typeList = JSONUtil.parseArray(shopTypeJson).toList(ShopType.class);
             return Result.ok(typeList);

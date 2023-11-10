@@ -101,7 +101,8 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
         Map<String ,Object> userMap=BeanUtil.beanToMap(userDTO);
 
         redisTemplate.opsForHash().putAll(RedisConstants.LOGIN_USER_KEY+token,userMap);
-        redisTemplate.expire(RedisConstants.LOGIN_USER_KEY+token,RedisConstants.LOGIN_USER_TTL,TimeUnit.MINUTES);
+        //NOTE:这里关掉TTL，方便测试防止每次都要改变token
+//        redisTemplate.expire(RedisConstants.LOGIN_USER_KEY+token,RedisConstants.LOGIN_USER_TTL,TimeUnit.MINUTES);
 
 
         return Result.ok(token);
