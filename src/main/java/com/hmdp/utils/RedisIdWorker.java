@@ -16,7 +16,7 @@ public class RedisIdWorker {
     private static final long BEGIN_TIMESTAMP=1672531200L;
     private static final int COUNT_BITS=32;
 
-    public long netId(String keyPrefix){
+    public long nextId(String keyPrefix){
         long now = LocalDateTime.now().toEpochSecond(ZoneOffset.UTC);
         long timestamp=now-BEGIN_TIMESTAMP;
 

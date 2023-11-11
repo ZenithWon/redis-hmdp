@@ -41,7 +41,7 @@ class HmDianPingApplicationTests {
         CountDownLatch latch=new CountDownLatch(count);
         Runnable task=()->{
             for(int i=0;i<10;i++){
-                long id=redisIdWorker.netId("order");
+                long id=redisIdWorker.nextId("order");
                 System.out.println("Generator Id => "+id);
             }
             latch.countDown();

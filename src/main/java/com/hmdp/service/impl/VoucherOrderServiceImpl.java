@@ -1,11 +1,10 @@
 package com.hmdp.service.impl;
 
-import cn.hutool.core.util.StrUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.hmdp.dto.Result;
 import com.hmdp.entity.SeckillVoucher;
 import com.hmdp.entity.VoucherOrder;
+import com.hmdp.listener.VoucherOrderListener;
 import com.hmdp.mapper.SeckillVoucherMapper;
 import com.hmdp.mapper.VoucherMapper;
 import com.hmdp.mapper.VoucherOrderMapper;
@@ -13,18 +12,21 @@ import com.hmdp.service.IVoucherOrderService;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.hmdp.utils.RedisConstants;
 import com.hmdp.utils.RedisIdWorker;
-import com.hmdp.utils.SimpleRedisLock;
 import com.hmdp.utils.UserHolder;
 import lombok.extern.slf4j.Slf4j;
 import org.redisson.api.RLock;
 import org.redisson.api.RedissonClient;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.core.io.ClassPathResource;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import javax.annotation.PostConstruct;
 import java.time.LocalDateTime;
-import java.util.concurrent.TimeUnit;
+import java.util.Collections;
+import java.util.concurrent.*;
 
 /**
  * <p>
@@ -51,6 +53,17 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
     private StringRedisTemplate stringRedisTemplate;
     @Autowired
     private RedissonClient redissonClient;
+    @Autowired
+    private VoucherOrderListener voucherOrderListener;
+
+    //加载Lua脚本
+    private static final DefaultRedisScript<Long> SEC_KILL_SCRIPT;
+    static{
+        SEC_KILL_SCRIPT=new DefaultRedisScript<>();
+        SEC_KILL_SCRIPT.setLocation(new ClassPathResource("/luaScript/seckill.lua"));
+        SEC_KILL_SCRIPT.setResultType(Long.class);
+    }
+
 
     @Override
     public Result seckillVoucher(Long voucherId) {
@@ -102,7 +115,7 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
         VoucherOrder voucherOrder = new VoucherOrder();
         voucherOrder.setUserId(userId);
         voucherOrder.setVoucherId(voucherId);
-        voucherOrder.setId(redisIdWorker.netId(RedisConstants.ORDER_KEY));
+        voucherOrder.setId(redisIdWorker.nextId(RedisConstants.ORDER_KEY));
 
         voucherOrderMapper.insert(voucherOrder);
 
@@ -112,16 +125,30 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
     //使用异步实现方案优化秒杀
     @Override
     public Result seckillOptimize(Long voucherId) {
-        String stockStr = stringRedisTemplate.opsForValue().get(RedisConstants.SECKILL_STOCK_KEY + voucherId);
-        if(StrUtil.isBlank(stockStr)){
-            return Result.fail("该优惠券不存在");
+        //执行Lua脚本，检查是否可以下单，可以将库存减1
+        Long userId = UserHolder.getUser().getId();
+        long orderId = redisIdWorker.nextId("order");
+        Long killRes = stringRedisTemplate.execute(
+                SEC_KILL_SCRIPT , Collections.emptyList() , Long.toString(voucherId) ,
+                Long.toString(userId),String.valueOf(orderId)
+        );
+
+        if(killRes==null){
+            throw new RuntimeException("抢购失败");
         }
 
-        Integer stock=Integer.valueOf(stockStr);
-        if(stock<=0){
-            return Result.fail("优惠券已经被抢光了");
+        if(killRes.equals(1L)){
+            return Result.fail("优惠券已经被抢光");
         }
-        //todo:库存减1，生成订单加入集合并返回订单信息
-        return Result.ok("Completed");
+
+        if(killRes.equals(2L)){
+            return Result.fail("您已经购买过该优惠券");
+        }
+
+        if(killRes.equals(3L)){
+            return Result.fail("优惠券不存在");
+        }
+        //NOTE：Lua脚本已经添加至消息队列，这里只需要判断是否下单成功然后返回结果
+        return Result.ok(orderId);
     }
 }
