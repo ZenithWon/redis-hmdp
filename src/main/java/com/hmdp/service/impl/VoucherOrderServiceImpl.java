@@ -127,7 +127,7 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
     public Result seckillOptimize(Long voucherId) {
         //执行Lua脚本，检查是否可以下单，可以将库存减1
         Long userId = UserHolder.getUser().getId();
-        long orderId = redisIdWorker.nextId("order");
+        long orderId = redisIdWorker.nextId(RedisConstants.ORDER_KEY);
         Long killRes = stringRedisTemplate.execute(
                 SEC_KILL_SCRIPT , Collections.emptyList() , Long.toString(voucherId) ,
                 Long.toString(userId),String.valueOf(orderId)
