@@ -151,4 +151,28 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
         //NOTE：Lua脚本已经添加至消息队列，这里只需要判断是否下单成功然后返回结果
         return Result.ok(orderId);
     }
+
+    @Override
+    @Transactional
+    public boolean createOrder(VoucherOrder voucherOrder){
+        Long voucherId = voucherOrder.getVoucherId();
+        Long userId = voucherOrder.getUserId();
+
+        Integer count = voucherOrderMapper.selectCount(
+                new LambdaQueryWrapper<VoucherOrder>().eq(VoucherOrder::getVoucherId , voucherId).eq(VoucherOrder::getUserId , userId)
+        );
+        if(count>0){
+            return false;
+        }
+
+        if (seckillVoucherMapper.updateStockWithLock(voucherId) <= 0) {
+            return false;
+        }
+
+        if(voucherOrderMapper.insert(voucherOrder)<=0){
+            return false;
+        }
+
+        return true;
+    }
 }
