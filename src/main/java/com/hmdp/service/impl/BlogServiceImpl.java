@@ -5,6 +5,7 @@ import cn.hutool.core.collection.CollectionUtil;
 import cn.hutool.core.util.BooleanUtil;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.hmdp.dto.Result;
+import com.hmdp.dto.ScrollResult;
 import com.hmdp.dto.UserDTO;
 import com.hmdp.entity.Blog;
 import com.hmdp.entity.User;
@@ -15,8 +16,10 @@ import com.hmdp.service.IUserService;
 import com.hmdp.utils.RedisConstants;
 import com.hmdp.utils.SystemConstants;
 import com.hmdp.utils.UserHolder;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.ZSetOperations;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -35,6 +38,7 @@ import java.util.stream.Collectors;
  * @since 2021-12-22
  */
 @Service
+@Slf4j
 public class BlogServiceImpl extends ServiceImpl<BlogMapper, Blog> implements IBlogService {
     @Autowired
     private IUserService userService;
@@ -136,6 +140,70 @@ public class BlogServiceImpl extends ServiceImpl<BlogMapper, Blog> implements IB
         }
 
         return Result.ok(userDTOS);
+    }
+
+    @Override
+    @Transactional
+    public Result saveBlog(Blog blog) {
+        Long userId=UserHolder.getUser().getId();
+        blog.setUserId(userId);
+        int insert = blogMapper.insert(blog);
+        if(insert<=0){
+            return Result.fail("保存失败");
+        }
+
+        List<Long> followers = stringRedisTemplate.opsForSet().members(RedisConstants.USER_FOLLOW_KEY + userId)
+                .stream().map(Long::valueOf).collect(Collectors.toList());
+
+        for(Long follow:followers){
+            //NOTE：这里不一定要向每个粉丝的收件箱推送，可以通过算法只推送给活跃粉丝
+            stringRedisTemplate.opsForZSet().
+                    add(RedisConstants.FEED_RECEIVE_KEY+follow,blog.getId().toString(),System.currentTimeMillis());
+        }
+        stringRedisTemplate.opsForZSet()
+                .add(RedisConstants.FEED_PUBLISH_KEY+userId,blog.getId().toString(),System.currentTimeMillis());
+
+        return Result.ok(blog.getId());
+    }
+
+    @Override
+    public Result getFollowBlogs(Long lastId , Integer offset) {
+        //NOTE：实现根据关注列表实时更新的另一种方案是：在这里先从关注者的发件箱拉取。这里采用的是在关注和取关操作时，直接更新。
+
+        Long userId=UserHolder.getUser().getId();
+        String key=RedisConstants.FEED_RECEIVE_KEY+userId;
+        log.debug("key:{},offset:{},lastId:{}",key,offset,lastId);
+        Set<ZSetOperations.TypedTuple<String>> typedTuples = stringRedisTemplate.opsForZSet()
+                .reverseRangeByScoreWithScores(key , 0 , lastId ,offset, 2);
+
+        if(typedTuples==null||typedTuples.isEmpty()){
+            return Result.ok();
+        }
+
+        Long ans=lastId;
+        Integer nextOffset=1;
+        List<Blog> blogList=new ArrayList<>();
+        for(ZSetOperations.TypedTuple<String> typedTuple :typedTuples){
+            Long score = typedTuple.getScore().longValue();
+            Long blogId = Long.parseLong(typedTuple.getValue());
+            if(ans.equals(score)){
+                nextOffset+=1;
+            }else{
+                nextOffset=1;
+                ans=score;
+            }
+            Blog blog = (Blog) queryBlogById(blogId).getData();
+            blogList.add(blog);
+
+        }
+
+        ScrollResult scrollResult=new ScrollResult();
+        scrollResult.setList(blogList);
+        scrollResult.setMinTime(ans);
+        scrollResult.setOffset(nextOffset);
+
+
+        return Result.ok(scrollResult);
     }
 
 }
